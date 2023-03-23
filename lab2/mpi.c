@@ -12,6 +12,7 @@
 int main(int argc, char **argv) {
     Args ins__args;
     parseArgs(&ins__args, &argc, argv);
+    struct timeval ins__tstart, ins__tstop;
 
     // program input argument
     int quantity_of_numbers = ins__args.arg;
@@ -29,6 +30,9 @@ int main(int argc, char **argv) {
     // find out the number of processes in MPI_COMM_WORLD
     MPI_Comm_size(MPI_COMM_WORLD, &proccount);
 
+    if(!myrank)
+      gettimeofday(&ins__tstart, NULL);
+
     if (proccount < 2) {
         printf("Run with at least 2 processes");
         MPI_Finalize();
@@ -36,10 +40,11 @@ int main(int argc, char **argv) {
     }
 
     srand(time(NULL));
-    int range_min = 0, range_max = 5;
+    int range_min = 0, range_max = 1000;
     int size_of_histogram = range_max + 1;
 
-    int number_of_job_parts = quantity_of_numbers / (proccount - 1);
+    //int packet_size = quantity_of_numbers / (proccount - 1);
+    int packet_size = 10;
 
     // now the master will distribute the data and slave processes will perform computations
     if (myrank == 0) {
@@ -51,17 +56,17 @@ int main(int argc, char **argv) {
         // first distribute some sets of random numbers to all slaves
         for (int i = 1; i < proccount; i++) {
             int *set = (int *) malloc(
-                    number_of_job_parts * sizeof(int)); // alokacja pamięci dla każdej paczki wysłanej dla slava
+                    packet_size * sizeof(int)); // alokacja pamięci dla każdej paczki wysłanej dla slava
             // fill the set with random numbers
-            for (int j = 0; j < number_of_job_parts; j++) {
+            for (int j = 0; j < packet_size; j++) {
                 set[j] = rand() % (range_max - range_min + 1) + range_min;
                 counter++;
             }
 
-            MPI_Send(set, number_of_job_parts, MPI_INT, i, DATA, MPI_COMM_WORLD);
+            MPI_Send(set, packet_size, MPI_INT, i, DATA, MPI_COMM_WORLD);
             free(set);
         }
-        if (counter < quantity_of_numbers){
+        do{
             int *received_set = (int *) malloc(size_of_histogram * sizeof(int));
             MPI_Recv(received_set, size_of_histogram, MPI_INT, MPI_ANY_SOURCE, RESULT, MPI_COMM_WORLD, &status);
 
@@ -72,10 +77,10 @@ int main(int argc, char **argv) {
             free(received_set);
 
            int *set = (int *) malloc(
-                    number_of_job_parts * sizeof(int));
+                    packet_size * sizeof(int));
 
-            // fill the set with random numbers
-            for (int j = 0; j < number_of_job_parts; j++) {
+
+            for (int j = 0; j < packet_size; j++) {
                 if (counter < quantity_of_numbers) {
                     set[j] = rand() % (range_max - range_min + 1) + range_min;
                     counter++;
@@ -85,9 +90,10 @@ int main(int argc, char **argv) {
                 }
             }
 
-            MPI_Send(set, number_of_job_parts, MPI_INT, status.MPI_SOURCE, DATA, MPI_COMM_WORLD);
+            MPI_Send(set, packet_size, MPI_INT, status.MPI_SOURCE, DATA, MPI_COMM_WORLD);
+
             free(set);
-        }
+        } while(counter < quantity_of_numbers);
 
         // receive the results from the slave processes and update the histogram
         for (int i = 1; i < proccount; i++) {
@@ -128,19 +134,18 @@ int main(int argc, char **argv) {
 
             if (status.MPI_TAG == DATA) {
 
-                int *slave_result = (int *) malloc(size_of_histogram * sizeof(int));
+                int *slave_result = (int *) calloc(size_of_histogram, sizeof(int));
+                int *package_from_master = (int *) malloc(packet_size * sizeof(int));
 
-                int *package_from_master = (int *) malloc(number_of_job_parts * sizeof(int));
+                //for (int j = 0; j < size_of_histogram; j++) {
+                //    slave_result[j] = 0;
+                //}
 
-                for (int j = 0; j < size_of_histogram; j++) {
-                    slave_result[j] = 0;
-                }
-
-                MPI_Recv(package_from_master, number_of_job_parts, MPI_INT, 0, DATA, MPI_COMM_WORLD,
+                MPI_Recv(package_from_master, packet_size, MPI_INT, 0, DATA, MPI_COMM_WORLD,
                          &status);
 
                 // compute my part
-                for (int j = 0; j < number_of_job_parts; j++) {
+                for (int j = 0; j < packet_size; j++) {
                     if (package_from_master[j] < range_max + 1) {
                         slave_result[package_from_master[j]]++;
                     }
@@ -156,8 +161,14 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (!myrank) {
+    gettimeofday(&ins__tstop, NULL);
+    ins__printtime(&ins__tstart, &ins__tstop, ins__args.marker);
+  }
+
     // Shut down MPI
     MPI_Finalize();
 
     return 0;
 }
+
