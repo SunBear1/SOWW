@@ -4,18 +4,6 @@
 #include <sys/time.h>
 #include <mpi.h>
 
-int is_prime(long n) {
-    if (n <= 1) {
-        return 0;
-    }
-    for (long i = 2; i * i <= n; i++) {
-        if (n % i == 0) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 int main(int argc,char **argv) {
 
   Args ins__args;
@@ -35,19 +23,28 @@ int main(int argc,char **argv) {
   // and the number of processes
   MPI_Comm_size(MPI_COMM_WORLD,&nproc);
 
+  if(!myrank)
+      gettimeofday(&ins__tstart, NULL);
 
-  // check if inputArgument is prime
-  int is_input_prime = is_prime(inputArgument);
+  // run your computations here (including MPI communication)
+   int isPrime = 0, sumOfPrimes = 0;
+   
+   for (long i = myrank + 2; i * i <= inputArgument; i += nproc) {
+        if (inputArgument % i == 0) {
+            isPrime = 1;
+            break;
+        }
+    }
 
   // synchronize/finalize your computations
-  int all_input_prime = 0;
-  MPI_Allreduce(&is_input_prime, &all_input_prime, 1, MPI_INT, MPI_LAND, MPI_COMM_WORLD);
-
-  if (!myrank && all_input_prime) {
-      printf("%ld is prime.\n", inputArgument);
-  }
+  MPI_Reduce(&isPrime, &sumOfPrimes, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
   if (!myrank) {
+    if (sumOfPrimes == 0){
+      printf("\n %ld JEST pierwsza", inputArgument);
+    } else {
+      printf("\n %ld NIE JEST pierwsza", inputArgument);
+    }
     gettimeofday(&ins__tstop, NULL);
     ins__printtime(&ins__tstart, &ins__tstop, ins__args.marker);
   }
